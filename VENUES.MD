@@ -29,7 +29,7 @@ Each folder would have this structure
 | **shortcode**| gh2_arena| Venue code to be used inside song.ini to specify a venue to be used |
 | **location** | California | Just a input field, we can utilize this just for visuals when loading the song, in a tour mode, anything |
 | **size** | 3 | Defines the type of venue, can be used to filter venue to be selected in a future Tour mode for example |
-| **type** | venue | Defines if the venue is a proper venue or a  |
+| **type** | venue | Defines if the venue is a proper venue or a mtv clip, modchart for example |
 | **time_of_day** | night | Defines the time of day for the venue, can be used for any filtering we might need |
 | **source**| gh2| Used to match venues with songs from same source, based on the selected setting|
 | **creator** | MiloHax| Just like the charter tag used in song.ini |
