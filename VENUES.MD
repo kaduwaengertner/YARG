@@ -60,4 +60,5 @@ How the venues should be loaded in case the user has all the options selected:
 ---
 
 **- What if the venue specified in the song.ini is not found inside the Venues folder for the user?**
+
 *Selects the next Venue from the priority list.*
