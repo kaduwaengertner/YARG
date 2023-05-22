@@ -1,3 +1,4 @@
+
 # Venues
 
 Proposal for Backgrounds in YARG (Images/Videos/Venues)
@@ -24,9 +25,15 @@ Each folder would have this structure
 |--|:--:|--|
 | **name** | The Arena | Name of the venue, can be used on the Venue dropdown selector or any other use case in the future |
 | **shortcode**| gh2_arena| Venue code to be used inside song.ini to specify a venue to be used |
-| **location** | 3 | Defines the type of venue, can be used to filter venue to be selected in a future Tour mode for example |
+| **location** | California | Just a input field, we can utilize this just for visuals when loading the song, in a tour mode, anything |
+| **size** | 3 | Defines the type of venue, can be used to filter venue to be selected in a future Tour mode for example |
 | **source**| gh2| Used to match venues with songs from same source, based on the selected setting|
 | **creator** | MiloHax| Just like the charter tag used in song.ini |
+
+### Extra fields that can be used on song.ini
+
+    venue=gh2_arena
+    venuesize=3
 
 ## Settings for Backgrounds
 
@@ -46,5 +53,11 @@ If the user selected **Venue** in the **Type** also show this extra settings:
 How the venues should be loaded in case the user has all the options selected:
 
  1. **Song Specific** - Inside the song folder
- 2. **Source Specific** - Any random venue that has the same source as the song loaded
- 3. **Selected in Settings** - Random or a specific one set in the Background Settings
+ 2. **song.ini** - Specified venue in the song.ini venue value
+ 3. **Source Specific** - Any random venue that has the same source as the song loaded
+ 4. **Selected in Settings** - Random or a specific one set in the Background Settings
+
+---
+
+**- What if the venue specified in the song.ini is not found inside the Venues folder for the user?**
+*Selects the next Venue from the priority list.*
