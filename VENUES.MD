@@ -21,7 +21,7 @@ Each folder would have this structure
     time_of_day=night
     type=venue
     source=gh2
-    creator=MiloHax
+    author=MiloHax
     
 |Key| Value | Description |
 |--|:--:|--|
@@ -32,7 +32,7 @@ Each folder would have this structure
 | **type** | venue | Defines if the venue is a proper venue or a mtv clip, modchart for example |
 | **time_of_day** | night | Defines the time of day for the venue, can be used for any filtering we might need |
 | **source**| gh2| Used to match venues with songs from same source, based on the selected setting|
-| **creator** | MiloHax| Just like the charter tag used in song.ini |
+| **author** | MiloHax| Just like the charter tag used in song.ini |
 
 ### Venue Sizes
 | Value | Desc |
