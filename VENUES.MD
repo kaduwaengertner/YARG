@@ -49,6 +49,12 @@ Each folder would have this structure
 | night | Night |
 | dynamic | Uses outside light based on computers time |
 
+### Venue Types
+| Value | Desc |
+|--|--|
+| venue | Default venues |
+| mtv | Venues that are more like the MTV Venues, Music clip style |
+
 ### Extra fields that can be used on song.ini to specify a venue to be used
 
     venue=gh2_arena
