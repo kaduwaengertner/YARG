@@ -33,7 +33,6 @@ Each folder would have this structure
 ### Extra fields that can be used on song.ini
 
     venue=gh2_arena
-    venuesize=3
 
 ## Settings for Backgrounds
 
