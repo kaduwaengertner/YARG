@@ -54,7 +54,6 @@ Each folder would have this structure
 |--|--|
 | venue | Default venues |
 | mtv | Venues that are more like the MTV Venues, Music clip style |
-| modchart | Modchart venues |
 
 ### Extra fields that can be used on song.ini to specify a venue to be used
 
