@@ -37,16 +37,20 @@ Each folder would have this structure
 ### Venue Sizes
 | Value | Desc |
 |--|--|
-| 1 | Small |
-| 2 | Medium |
-| 3 | Large |
-| 4 | Special |
+| small | Small size venues |
+| medium | Medium size venues |
+| large | Large size venues |
+| special | Venues that don't have a standard place |
 
 ### Time of Day
 | Value | Desc |
 |--|--|
+| sunrise | Day |
 | day | Day |
+| sunset | Sunset |
+| dusk | Dusk |
 | night | Night |
+| dawn | Dawn |
 | dynamic | Uses outside light based on computers time |
 
 ### Venue Types
@@ -64,26 +68,27 @@ Each folder would have this structure
 
 |Setting| Description | Value | 
 |--|--|--|
-| **Type** | Selects between Image, Video, Venues or None(Black background) | Dropdown |
+| **Type** | Selects between Image, Video, Venues, None(Black background) or Random (random would ignore the None and only randomize between the other options) | Dropdown |
 | **Background** | Dropdown with the content of the type selected and a Random option on Top | Dropdown |
 
 ### Extra settings for Venues
 If the user selected **Venue** in the **Type** also show this extra settings:
 |Setting| Description | Value | 
 |--|--|--|
+| **Setlist Specific Overwrite** | Allows setlists to overwrite the venue used | Toggle |
 | **Song Specific Overwrite** | Overwrite the selected background using the one inside the song folder | Toggle |
 | **Source Specific Overwrite** | Overwrite the selected background using one venue that uses the same source from the song | Toggle|
 
 ## Venue Priority
 How the venues should be loaded in case the user has all the options selected:
 
- 1. **Song Specific** - Inside the song folder
- 2. **song.ini** - Specified venue in the song.ini venue value
- 3. **Source Specific** - Any random venue that has the same source as the song loaded
- 4. **Selected in Settings** - Random or a specific one set in the Background Settings
+ 1. **Setlist Specific** - If the user is playing a setlist the song will load the venue specified by the setlist file.
+ 2. **Song Specific** - Inside the song folder
+ 3. **song.ini** - Specified venue in the song.ini venue value
+ 4. **Source Specific** - Any random venue that has the same source as the song loaded
+ 5. **Selected in Settings** - Random or a specific one set in the Background Settings
 
 ---
 
-**- What if the venue specified in the song.ini is not found inside the Venues folder for the user?**
-
+**What if the venue specified in the song.ini is not found inside the Venues folder for the user?**
 *Selects the next Venue from the priority list.*
