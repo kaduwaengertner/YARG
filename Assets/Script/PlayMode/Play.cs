@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -10,6 +9,7 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using YARG.Audio;
 using YARG.Chart;
 using YARG.Data;
 using YARG.Input;
@@ -17,7 +17,6 @@ using YARG.Serialization.Parser;
 using YARG.Settings;
 using YARG.Song;
 using YARG.UI;
-using YARG.Util;
 using YARG.Venue;
 
 namespace YARG.PlayMode {
@@ -30,6 +29,7 @@ namespace YARG.PlayMode {
 		public static float speed = 1f;
 
 		public const float SONG_START_OFFSET = -2f;
+		public const float SONG_END_DELAY = 2f;
 
 		public delegate void BeatAction();
 		public static event BeatAction BeatEvent;
@@ -41,29 +41,25 @@ namespace YARG.PlayMode {
 		public delegate void PauseStateChangeAction(bool pause);
 		public static event PauseStateChangeAction OnPauseToggle;
 
-		[SerializeField]
-		private RenderTexture backgroundRenderTexture;
-
 		public bool SongStarted {
 			get;
 			private set;
-		} = false;
+		}
+
+		[field: SerializeField]
+		public Camera DefaultCamera { get; private set; }
 
 		private OccurrenceList<string> audioLowering = new();
 		private OccurrenceList<string> audioReverb = new();
 
 		private int stemsReverbed;
 
-		private bool audioStarted;
+		private bool audioRunning;
 		private float realSongTime;
-		public float SongTime {
-			get => realSongTime + PlayerManager.GlobalCalibration * speed;
-		}
+		public float SongTime => realSongTime - PlayerManager.AudioCalibration * speed - (float) Song.Delay;
 
-		public float SongLength {
-			get;
-			private set;
-		}
+		private float audioLength;
+		public float SongLength { get; private set; }
 
 		public YargChart chart;
 
@@ -85,7 +81,7 @@ namespace YARG.PlayMode {
 
 		private List<AbstractTrack> _tracks;
 
-		private bool endReached = false;
+		public bool endReached { get; private set; } = false;
 
 		private bool _paused = false;
 		public bool Paused {
@@ -130,9 +126,11 @@ namespace YARG.PlayMode {
 
 			ScoreKeeper.Reset();
 			StarScoreKeeper.Reset();
-			Navigator.Instance.PopAllSchemes();
 
-			backgroundRenderTexture.ClearTexture();
+			// Force the music player to disable, and hide the help bar
+			// This is mostly for "Test Play" mode
+			Navigator.Instance.ForceHideMusicPlayer();
+			Navigator.Instance.PopAllSchemes();
 
 			// Song
 			StartSong();
@@ -141,30 +139,60 @@ namespace YARG.PlayMode {
 		private void StartSong() {
 			GameUI.Instance.SetLoadingText("Loading audio...");
 
-			// Determine if speed is not 1
-			bool isSpeedUp = Math.Abs(speed - 1) > float.Epsilon;
-
 			// Load MOGG if CON, otherwise load stems
 			if (Song is ExtractedConSongEntry rawConSongEntry) {
-				GameManager.AudioManager.LoadMogg(rawConSongEntry, isSpeedUp);
+				GameManager.AudioManager.LoadMogg(rawConSongEntry, speed);
 			} else {
 				var stems = AudioHelpers.GetSupportedStems(Song.Location);
 
-				GameManager.AudioManager.LoadSong(stems, isSpeedUp);
+				GameManager.AudioManager.LoadSong(stems, speed);
 			}
 
-			SongLength = GameManager.AudioManager.AudioLengthF;
+			// Get song length
+			audioLength = GameManager.AudioManager.AudioLengthF;
+			SongLength = audioLength;
 
 			GameUI.Instance.SetLoadingText("Loading chart...");
 
 			// Load chart (from midi, upgrades, etc.)
 			LoadChart();
 
+			// Adjust song length if needed
+			// The [end] event is allowed to make the chart shorter (but not longer)
+			for (int i = chart.events.Count - 1; i > 0; i--) {
+				var chartEvent = chart.events[i];
+				if (chartEvent.name != "end") {
+					continue;
+				}
+
+				if (chartEvent.time < SongLength) {
+					SongLength = chartEvent.time;
+					break;
+				}
+			}
+
+			// The song length must include all notes in the chart
+			foreach (var part in chart.AllParts) {
+				foreach (var difficulty in part) {
+					if (difficulty.Count < 1) {
+						continue;
+					}
+
+					var lastNote = difficulty[^1];
+					if (lastNote.EndTime > SongLength) {
+						SongLength = lastNote.EndTime;
+					}
+				}
+			}
+
+			// Finally, append some additional time so the song doesn't just end immediately
+			SongLength += SONG_END_DELAY * speed;
+
 			GameUI.Instance.SetLoadingText("Spawning tracks...");
 
 			// Spawn tracks
 			_tracks = new List<AbstractTrack>();
-			int i = 0;
+			int trackIndex = 0;
 			foreach (var player in PlayerManager.players) {
 				if (player.chosenInstrument == null) {
 					// Skip players that are sitting out
@@ -188,11 +216,11 @@ namespace YARG.PlayMode {
 				}
 
 				var prefab = Addressables.LoadAssetAsync<GameObject>(trackPath).WaitForCompletion();
-				var track = Instantiate(prefab, new Vector3(i * 25f, 100f, 0f), prefab.transform.rotation);
+				var track = Instantiate(prefab, new Vector3(trackIndex * 25f, 100f, 0f), prefab.transform.rotation);
 				_tracks.Add(track.GetComponent<AbstractTrack>());
-				_tracks[i].player = player;
+				_tracks[trackIndex].player = player;
 
-				i++;
+				trackIndex++;
 			}
 
 			// Load background (venue, video, image, etc.)
@@ -203,113 +231,73 @@ namespace YARG.PlayMode {
 			// Hide loading screen
 			GameUI.Instance.loadingContainer.SetActive(false);
 
-			realSongTime = SONG_START_OFFSET;
+			realSongTime = SONG_START_OFFSET * speed;
 			StartCoroutine(StartAudio());
-
-			// End events override the audio length
-			foreach (var chartEvent in chart.events) {
-				// TODO: "chart.events" does not include the "end" event, as it is
-				// intermdiate representation of the midi file. The "end" event must be parsed.
-				if (chartEvent.name == "end") {
-					SongLength = chartEvent.time;
-					break;
-				}
-			}
 
 			OnSongStart?.Invoke(Song);
 		}
 
 		private void LoadBackground() {
-			// Try a yarground first
-
-			string backgroundPath = Path.Combine(Song.Location, "bg.yarground");
-			if (File.Exists(backgroundPath)) {
-				var bundle = AssetBundle.LoadFromFile(backgroundPath);
-
-				// KEEP THIS PATH LOWERCASE
-				// Breaks things for other platforms, because Unity
-				var bg = bundle.LoadAsset<GameObject>("assets/_background.prefab");
-
-				var bgInstance = Instantiate(bg);
-
-				bgInstance.GetComponent<BundleBackgroundManager>().Bundle = bundle;
+			var typePathPair = VenueLoader.GetVenuePath(Song);
+			if (typePathPair == null) {
 				return;
 			}
 
-			// Finally, a picture or video
+			var type = typePathPair.Value.Type;
+			var path = typePathPair.Value.Path;
 
-			string[] fileNames = {
-				"bg",
-				"background",
-				"video"
-			};
+			switch (type) {
+				case VenueType.Yarground:
+					var bundle = AssetBundle.LoadFromFile(path);
 
-			string[] videoExtensions = {
-				".mp4",
-				".mov",
-				".webm",
-			};
+					// KEEP THIS PATH LOWERCASE
+					// Breaks things for other platforms, because Unity
+					var bg = bundle.LoadAsset<GameObject>(BundleBackgroundManager.BACKGROUND_PREFAB_PATH.ToLowerInvariant());
 
-			foreach (var name in fileNames) {
-				foreach (var ext in videoExtensions) {
-					var path = Path.Combine(Song.Location, name + ext);
+					// Fix for non-Windows machines
+					// Probably there's a better way to do this.
+#if UNITY_EDITOR_LINUX || UNITY_STANDALONE_LINUX || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+					Renderer[] renderers = bg.GetComponentsInChildren<Renderer>();
 
-					if (File.Exists(path)) {
-						GameUI.Instance.videoPlayer.url = path;
-						GameUI.Instance.videoPlayer.enabled = true;
-						GameUI.Instance.videoPlayer.Prepare();
+					foreach (Renderer renderer in renderers) {
+						Material[] materials = renderer.sharedMaterials;
 
-						return;
+						for (int i = 0; i < materials.Length; i++) {
+							Material material = materials[i];
+							material.shader = Shader.Find(material.shader.name);
+						}
 					}
-				}
-			}
+#endif
 
-			string[] imageExtensions = {
-				".png",
-				".jpg",
-				".jpeg",
-			};
+					var bgInstance = Instantiate(bg);
 
-			foreach (var name in fileNames) {
-				foreach (var ext in imageExtensions) {
-					var path = Path.Combine(Song.Location, name + ext);
-
-					if (File.Exists(path)) {
-						var png = ImageHelper.LoadTextureFromFile(path);
-
-						GameUI.Instance.background.texture = png;
-						return;
-					}
-				}
+					bgInstance.GetComponent<BundleBackgroundManager>().Bundle = bundle;
+					break;
+				case VenueType.Video:
+					GameUI.Instance.videoPlayer.url = path;
+					GameUI.Instance.videoPlayer.enabled = true;
+					GameUI.Instance.videoPlayer.Prepare();
+					break;
+				case VenueType.Image:
+					var png = ImageHelper.LoadTextureFromFile(path);
+					GameUI.Instance.background.texture = png;
+					break;
 			}
 		}
 
 		private void LoadChart() {
-			// Add main file
-			var files = new List<string> {
-				Path.Combine(Song.Location, Song.NotesFile)
-			};
-
-			// Look for upgrades and add
-			// var upgradeFolder = new DirectoryInfo(Path.Combine(song.RootFolder, "yarg_upgrade"));
-			// if (upgradeFolder.Exists) {
-			// 	foreach (var midi in upgradeFolder.GetFiles("*.mid")) {
-			// 		files.Add(midi.FullName);
-			// 	}
-			// }
-
 			// Parse
 
 			MoonSong moonSong = null;
 			if (Song.NotesFile.EndsWith(".chart")) {
 				Debug.Log("Reading .chart file");
-				moonSong = ChartReader.ReadChart(files[0]);
+				moonSong = ChartReader.ReadChart(Path.Combine(Song.Location, Song.NotesFile));
 			}
 
 			chart = new YargChart(moonSong);
 			if (Song.NotesFile.EndsWith(".mid")) {
 				// Parse
-				var parser = new MidiParser(Song, files.ToArray());
+				var parser = new MidiParser(Song);
 				chart.InitializeArrays();
 				parser.Parse(chart);
 			} else if (Song.NotesFile.EndsWith(".chart")) {
@@ -326,16 +314,37 @@ namespace YARG.PlayMode {
 
 		private IEnumerator StartAudio() {
 			while (realSongTime < 0f) {
-				realSongTime += Time.deltaTime;
+				// Wait until the song time is 0
 				yield return null;
 			}
 
+			float? startVideoIn = null;
 			if (GameUI.Instance.videoPlayer.enabled) {
-				GameUI.Instance.videoPlayer.Play();
+				// Set the chart start offset here (if ini)
+				if (Song is IniSongEntry ini) {
+					if (ini.VideoStartOffset < 0) {
+						startVideoIn = Mathf.Abs(ini.VideoStartOffset / 1000f);
+					} else {
+						GameUI.Instance.videoPlayer.time = ini.VideoStartOffset / 1000.0;
+					}
+				}
+
+				// Play the video if a start time wasn't defined
+				if (startVideoIn == null) {
+					GameUI.Instance.videoPlayer.Play();
+				}
 			}
 
 			GameManager.AudioManager.Play();
-			audioStarted = true;
+
+			GameManager.AudioManager.SongEnd += OnEndReached;
+			audioRunning = true;
+
+			if (startVideoIn != null) {
+				// Wait, then start on time
+				yield return new WaitForSeconds(startVideoIn.Value);
+				GameUI.Instance.videoPlayer.Play();
+			}
 		}
 
 		private void Update() {
@@ -353,57 +362,61 @@ namespace YARG.PlayMode {
 			}
 
 			// Update this every frame to make sure all notes are spawned at the same time.
-			if (audioStarted) {
-				realSongTime = GameManager.AudioManager.CurrentPositionF;
+			float audioTime = GameManager.AudioManager.CurrentPositionF;
+			if (audioRunning && audioTime < audioLength) {
+				realSongTime = audioTime;
+			} else {
+				// We need to update the song time ourselves if the audio finishes before the song actually ends
+				realSongTime += Time.deltaTime * speed;
 			}
 
-			UpdateAudio(new string[] {
+			UpdateAudio(new[] {
 				"guitar",
 				"realGuitar"
-			}, new string[] {
+			}, new[] {
 				"guitar"
 			});
 
 			// Swap what tracks depending on what instrument is playing
 			if (playingRhythm) {
 				// Mute rhythm
-				UpdateAudio(new string[] {
+				UpdateAudio(new[] {
 					"rhythm",
-				}, new string[] {
+				}, new[] {
 					"rhythm"
 				});
 
 				// Mute bass
-				UpdateAudio(new string[] {
+				UpdateAudio(new[] {
 					"bass",
 					"realBass"
-				}, new string[] {
+				}, new[] {
 					"bass",
 				});
 			} else {
 				// Mute bass
-				UpdateAudio(new string[] {
+				UpdateAudio(new[] {
 					"bass",
 					"realBass"
-				}, new string[] {
+				}, new[] {
 					"bass",
 					"rhythm"
 				});
 			}
 
 			// Mute keys
-			UpdateAudio(new string[] {
+			UpdateAudio(new[] {
 				"keys",
 				"realKeys"
-			}, new string[] {
+			}, new[] {
 				"keys"
 			});
 
 			// Mute drums
-			UpdateAudio(new string[] {
+			UpdateAudio(new[] {
 				"drums",
 				"realDrums"
-			}, new string[] {
+			}, new[] {
 				"drums",
 				"drums_1",
 				"drums_2",
@@ -439,6 +452,11 @@ namespace YARG.PlayMode {
 			}
 		}
 
+		private void OnEndReached() {
+			audioLength = GameManager.AudioManager.CurrentPositionF;
+			audioRunning = false;
+		}
+
 		private void UpdateGenericLyrics() {
 			if (lyricIndex < chart.genericLyrics.Count) {
 				var lyric = chart.genericLyrics[lyricIndex];
@@ -456,7 +474,7 @@ namespace YARG.PlayMode {
 						var (_, str) = lyric.lyric[i];
 
 						if (str.EndsWith("-")) {
-							o += str[0..^1].Replace("=", "-");
+							o += str[..^1].Replace("=", "-");
 						} else {
 							o += str.Replace("=", "-") + " ";
 						}
@@ -526,6 +544,7 @@ namespace YARG.PlayMode {
 
 		public IEnumerator EndSong(bool showResultScreen) {
 			// Dispose of all audio
+			GameManager.AudioManager.SongEnd -= OnEndReached;
 			GameManager.AudioManager.UnloadSong();
 
 			// Call events
@@ -533,8 +552,6 @@ namespace YARG.PlayMode {
 
 			// Unpause just in case
 			Time.timeScale = 1f;
-
-			backgroundRenderTexture.ClearTexture();
 
 			OnSongEnd?.Invoke(Song);
 
@@ -581,7 +598,10 @@ namespace YARG.PlayMode {
 		}
 
 		public void Exit(bool toSongSelect = true) {
-			StartCoroutine(EndSong(false));
+			if (!endReached) {
+				endReached = true;
+				StartCoroutine(EndSong(false));
+			}
 			MainMenu.showSongSelect = toSongSelect;
 			GameManager.Instance.LoadScene(SceneIndex.MENU);
 		}

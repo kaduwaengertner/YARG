@@ -105,13 +105,13 @@ namespace YARG.UI.PlayResultScreen {
 				}
 
 				// Bots
-				if (player.inputStrategy.botMode) {
+				if (player.inputStrategy.BotMode) {
 					bot.Add(player);
 					continue;
 				}
 
-				// DQ non-100% speeds
-				if (Play.speed != 1f) {
+				// DQ speeds below 100%
+				if (Play.speed < 1f) {
 					disqualified.Add(player);
 					continue;
 				}

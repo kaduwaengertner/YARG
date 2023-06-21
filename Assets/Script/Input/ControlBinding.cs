@@ -2,6 +2,7 @@ using System.Diagnostics;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
 using UnityEngine.InputSystem.LowLevel;
+using YARG.Settings;
 
 namespace YARG.Input {
     public enum BindingType {
@@ -10,8 +11,6 @@ namespace YARG.Input {
     }
 
     public class ControlBinding {
-		public const float DEFAULT_PRESS_THRESHOLD = 0.75f; // TODO: Remove once control calibration is added
-
         /// <summary>
         /// The minimum number of milliseconds for the debounce threshold.
         /// </summary>
@@ -36,7 +35,7 @@ namespace YARG.Input {
         private (float previous, float current, float postDebounce) _state;
         public (float previous, float current) State => (_state.previous, _state.current);
 
-        private float pressPoint = DEFAULT_PRESS_THRESHOLD;
+        private float pressPoint = SettingsManager.Settings.PressThreshold.Data;
 
         private Stopwatch debounceTimer = new();
 
@@ -47,11 +46,11 @@ namespace YARG.Input {
         public long DebounceThreshold {
             get => _debounceThreshold;
             set {
-                // Limit debounce amount to 0-100 ms
-                // 100 ms is *very* generous, any larger and input registration will be very bad
+                // Limit debounce amount to 0-25 ms
+                // Any larger and input registration will be very bad since the max will limit to 40 inputs per second
                 // If someone needs a larger amount their controller is just busted lol
-                if (value > 100) {
-                    value = 100;
+                if (value > 25) {
+                    value = 25;
                 } else if (value < 0) {
                     value = 0;
                 }

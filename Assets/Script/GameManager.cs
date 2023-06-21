@@ -3,9 +3,12 @@ using UnityEngine;
 using UnityEngine.Audio;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
+using YARG.Audio;
+using YARG.Audio.BASS;
 using YARG.Input;
 using YARG.Settings;
 using YARG.Song;
+using YARG.Util;
 
 namespace YARG {
 	public enum SceneIndex {
@@ -21,46 +24,40 @@ namespace YARG {
 		public delegate void UpdateAction();
 		public static event UpdateAction OnUpdate;
 
-		/// <summary>
-		/// "Application.persistentDataPath" is main thread only. Why? I don't know.
-		/// </summary>
-		public static string PersistentDataPath { get; private set; }
-		public static string ApplicationDataPath { get; private set; }
-		public static string ExecutablePath { get; private set; }
-
 		public static IAudioManager AudioManager { get; private set; }
 
 		[field: SerializeField]
 		public SettingsMenu SettingsMenu { get; private set; }
 
-		[SerializeField]
-		private AudioMixerGroup vocalGroup;
-
 		public SceneIndex CurrentScene { get; private set; } = SceneIndex.PERSISTANT;
 
 		public SongEntry SelectedSong { get; set; }
+
+#if UNITY_EDITOR
+
+		public Util.TestPlayInfo TestPlayInfo { get; private set; }
+
+#endif
 
 		private void Awake() {
 			Instance = this;
 
 			Debug.Log($"YARG {Constants.VERSION_TAG}");
 
-			// this is to handle a strange edge case in path naming in windows.
-			// modern windows can handle / or \ in path names with seemingly one exception, if there is a space in the user name then try forward slash appdata, it will break at the first space so:
-			// c:\users\joe blow\appdata <- okay!
-			// c:/users/joe blow\appdata <- okay!
-			// c:/users/joe blow/appdata <- "Please choose an app to open joe"
-			// so let's just set them all to \ on windows to be sure.
-			// For linux Path.DirectorySeparatorChar should return /, and this should work fine, but this should be double checked once those builds are being worked on
-			PersistentDataPath = Application.persistentDataPath.Replace("/", Path.DirectorySeparatorChar.ToString());
-			ApplicationDataPath = Application.dataPath.Replace("/", Path.DirectorySeparatorChar.ToString());
-			ExecutablePath = Directory.GetParent(ApplicationDataPath)?.FullName;
-			Debug.Log(ExecutablePath);
+			PathHelper.Init();
 
 			AudioManager = gameObject.AddComponent<BassAudioManager>();
 			AudioManager.Initialize();
 
+			Shader.SetGlobalFloat("_IsFading", 1f);
+
 			StageKitHapticsManager.Initialize();
+
+#if UNITY_EDITOR
+
+			TestPlayInfo = UnityEditor.AssetDatabase.LoadAssetAtPath<Util.TestPlayInfo>("Assets/Settings/TestPlayInfo.asset");
+
+#endif
 		}
 
 		private void Start() {
@@ -74,7 +71,7 @@ namespace YARG {
 
 		private void OnDestroy() {
 			foreach (var player in PlayerManager.players) {
-				player.inputStrategy.Disable();
+				player.inputStrategy?.Dispose();
 			}
 		}
 

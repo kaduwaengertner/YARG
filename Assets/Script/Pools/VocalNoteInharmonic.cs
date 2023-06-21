@@ -9,7 +9,7 @@ namespace YARG.Pools {
 		private float lengthCache;
 
 		public void SetLength(float length) {
-			length *= MicPlayer.TRACK_SPEED / Play.speed;
+			length *= MicPlayer.trackSpeed / Play.speed;
 			lengthCache = length;
 
 			transform.localScale = transform.localScale.WithX(lengthCache);
@@ -28,14 +28,14 @@ namespace YARG.Pools {
 
 		public void SetColor(int harmIndex) {
 			var lineColor = meshRenderer.material.color;
-			var harmColor = MicPlayer.HARMONIC_COLORS[harmIndex];
+			var harmColor = MicPlayer.HarmonicColors[harmIndex];
 			harmColor.a = lineColor.a;
 
 			meshRenderer.material.color = harmColor;
 		}
 
 		private void Update() {
-			transform.localPosition -= new Vector3(Time.deltaTime * MicPlayer.TRACK_SPEED, 0f, 0f);
+			transform.localPosition -= new Vector3(Time.deltaTime * MicPlayer.trackSpeed, 0f, 0f);
 
 			if (transform.localPosition.x < -12f - (lengthCache / 2f)) {
 				MoveToPool();

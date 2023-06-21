@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Interaction;
 using Melanchall.DryWetMidi.MusicTheory;
 using UnityEngine;
+using XboxSTFS;
 using YARG.Chart;
 using YARG.Data;
 using YARG.DiffDownsample;
@@ -16,6 +18,17 @@ namespace YARG.Serialization.Parser {
 	public partial class MidiParser : AbstractParser {
 		private const bool FORCE_DOWNSAMPLE = false;
 
+		private static readonly ReadingSettings ReadSettings = new() {
+			InvalidChunkSizePolicy = InvalidChunkSizePolicy.Ignore,
+			NotEnoughBytesPolicy = NotEnoughBytesPolicy.Ignore,
+			NoHeaderChunkPolicy = NoHeaderChunkPolicy.Ignore,
+			InvalidChannelEventParameterValuePolicy = InvalidChannelEventParameterValuePolicy.ReadValid,
+		};
+
+		// Matches text inside [brackets], not including the brackets
+		// '[end]' -> 'end', '[section Solo] - "Solo"' -> 'section Solo'
+		private static readonly Regex textEventRegex = new(@"\[(.*?)\]", RegexOptions.Compiled | RegexOptions.Singleline);
+
 		private struct EventIR {
 			public long startTick;
 			public long? endTick;
@@ -24,75 +37,54 @@ namespace YARG.Serialization.Parser {
 
 		public MidiFile midi;
 
-		public MidiParser(SongEntry songEntry, string[] files) : base(songEntry, files) {
+		public MidiParser(SongEntry songEntry) : base(songEntry) {
 			// get base midi - read it in latin1 if RB, UTF-8 if clon
-			if (songEntry.SongType == SongType.RbCon) {
-				var conSong = (ConSongEntry) songEntry;
-				using var stream = new MemoryStream(XboxCONInnerFileRetriever.RetrieveFile(
-					conSong.Location, conSong.MidiFileSize, conSong.MidiFileMemBlockOffsets
-				));
-				midi = MidiFile.Read(stream, new ReadingSettings() { TextEncoding = Encoding.GetEncoding("iso-8859-1") });
-			} else if (songEntry.SongType == SongType.ExtractedRbCon) {
-				midi = MidiFile.Read(files[0], new ReadingSettings() { TextEncoding = Encoding.GetEncoding("iso-8859-1") });
-			} else midi = MidiFile.Read(files[0], new ReadingSettings() { TextEncoding = Encoding.UTF8 });
+
+			var readSettings = ReadSettings; // we need to modify these
+			readSettings.TextEncoding = songEntry is ConSongEntry ? Encoding.GetEncoding("iso-8859-1") : Encoding.UTF8;
+			if (songEntry is ExtractedConSongEntry hotdog) {
+				// hotdog brought to you by hugh
+				midi = MidiFile.Read(new MemoryStream(hotdog.LoadMidiFile()), readSettings);
+			} else {
+				midi = MidiFile.Read(Path.Combine(songEntry.Location, songEntry.NotesFile), readSettings);
+			}
 
 			// if this is a RB song...
 			if (songEntry is ExtractedConSongEntry oof) {
 				//...and it contains an update, merge the base and update midi
 				if (oof.DiscUpdate) {
-					List<string> BaseTracksToAdd = new List<string>();
-					List<string> UpdateTracksToAdd = new List<string>();
+					var TracksToAdd = new Dictionary<string, TrackChunk>();
+					var tmap = midi.GetTempoMap();
 					MidiFile midi_update = MidiFile.Read(oof.UpdateMidiPath, new ReadingSettings() { TextEncoding = Encoding.GetEncoding("iso-8859-1") });
 
-					// get base track names
+					bool BaseTMapParsed = false;
+					// get base track chunks
 					foreach (var trackChunk in midi.GetTrackChunks()) {
-						foreach (var trackEvent in trackChunk.Events) {
-							if (trackEvent is not SequenceTrackNameEvent trackName) continue;
-							BaseTracksToAdd.Add(trackName.Text);
-							break;
-						}
+						if(!BaseTMapParsed) BaseTMapParsed = true;
+						else TracksToAdd.Add(((SequenceTrackNameEvent)(trackChunk.Events[0])).Text, trackChunk);
 					}
 
-					// get update track names
+					bool UpdateTMapParsed = false;
+					// get update track chunks, replacing any base track chunks as necessary
 					foreach (var trackChunk in midi_update.GetTrackChunks()) {
-						foreach (var trackEvent in trackChunk.Events) {
-							if (trackEvent is not SequenceTrackNameEvent trackName) continue;
-							UpdateTracksToAdd.Add(trackName.Text);
-							// if a track is in both base and update, use the update track
-							if (BaseTracksToAdd.Find(s => s == trackName.Text) != null) BaseTracksToAdd.Remove(trackName.Text);
-							break;
-						}
+						if(!UpdateTMapParsed) UpdateTMapParsed = true;
+						else TracksToAdd[((SequenceTrackNameEvent)(trackChunk.Events[0])).Text] = trackChunk;
 					}
-
-					UpdateTracksToAdd.RemoveAt(0); // we want to stick with the base midi's tempomap
 
 					// create new midi to use and set the tempo map to the base midi's
 					MidiFile midi_merged = new MidiFile();
-					midi_merged.ReplaceTempoMap(midi.GetTempoMap());
+					midi_merged.ReplaceTempoMap(tmap);
 
-					// first, add approved base tracks to midi_merged
-					foreach (var trackChunk in midi.GetTrackChunks()) {
-						foreach (var trackEvent in trackChunk.Events) {
-							if (trackEvent is not SequenceTrackNameEvent trackName) continue;
-							if (BaseTracksToAdd.Find(s => s == trackName.Text) != null) midi_merged.Chunks.Add(trackChunk);
-							break;
-						}
-					}
-					// then, the update tracks
-					foreach (var trackChunk in midi_update.GetTrackChunks()) {
-						foreach (var trackEvent in trackChunk.Events) {
-							if (trackEvent is not SequenceTrackNameEvent trackName) continue;
-							if (UpdateTracksToAdd.Find(s => s == trackName.Text) != null) midi_merged.Chunks.Add(trackChunk);
-							break;
-						}
-					}
+					// add tracks to midi_merged
+					foreach(var pair in TracksToAdd)
+						midi_merged.Chunks.Add(pair.Value);
 
 					// finally, assign this new midi as the midi to use in-game
 					midi = midi_merged;
 				}
 
 				// also, if this RB song has a pro upgrade, merge it as well
-				if (oof.SongUpgrade.UpgradeMidiPath != string.Empty) {
+				if (oof.SongUpgrade != null) {
 					using var stream = new MemoryStream(oof.SongUpgrade.GetUpgradeMidi());
 					MidiFile upgrade = MidiFile.Read(stream, new ReadingSettings() { TextEncoding = Encoding.GetEncoding("iso-8859-1") });
 
@@ -104,7 +96,14 @@ namespace YARG.Serialization.Parser {
 							}
 						}
 					}
+				}
 
+				// TODO: NEVER assume localized version contains "Beatles"
+				if(!SongSources.SourceToGameName(oof.Source).Contains("Beatles")){ // skip beatles venues cuz they're built different
+					var miloTracks = MiloParser.GetMidiFromMilo(oof.LoadMiloFile(), midi.GetTempoMap());
+					foreach(var track in miloTracks){
+						midi.Chunks.Add(track);
+					}
 				}
 			}
 		}
@@ -155,6 +154,9 @@ namespace YARG.Serialization.Parser {
 
 						// Parse everything else
 						switch (trackName.Text) {
+							case "EVENTS":
+								ParseGlobalEvents(eventIR, trackChunk);
+								break;
 							case "PART GUITAR":
 								for (int i = 0; i < 4; i++) {
 									chart.Guitar[i] = ParseFiveFret(trackChunk, i);
@@ -219,26 +221,28 @@ namespace YARG.Serialization.Parser {
 										chart.RealDrums[i] = ParseDrums(trackChunk, true, i, drumType, null);
 
 										chart.GhDrums[i] = ParseGHDrums(trackChunk, i, drumType, chart.RealDrums[i]);
-										ParseStarpower(eventIR, trackChunk, "drums");
-										ParseStarpower(eventIR, trackChunk, "realDrums");
-										ParseDrumFills(eventIR, trackChunk, "drums");
-										ParseDrumFills(eventIR, trackChunk, "realDrums");
 									}
+									ParseStarpower(eventIR, trackChunk, "drums");
+									ParseStarpower(eventIR, trackChunk, "realDrums");
+									ParseDrumFills(eventIR, trackChunk, "drums");
+									ParseDrumFills(eventIR, trackChunk, "realDrums");
 								} else {
 									for (int i = 0; i < 5; i++) {
 										chart.GhDrums[i] = ParseGHDrums(trackChunk, i, drumType, null);
 
 										chart.Drums[i] = ParseDrums(trackChunk, false, i, drumType, chart.GhDrums[i]);
 										chart.RealDrums[i] = ParseDrums(trackChunk, true, i, drumType, chart.GhDrums[i]);
-
-										// TODO: SP is still a bit broken on 5-lane and is therefore disabled for now
-										//ParseStarpower(eventIR, trackChunk, "ghDrums");
-										//ParseDrumFills(eventIR, trackChunk, "ghDrums");
 									}
+									// TODO: SP is still a bit broken on 5-lane and is therefore disabled for now
+									//ParseStarpower(eventIR, trackChunk, "ghDrums");
+									//ParseDrumFills(eventIR, trackChunk, "ghDrums");
 								}
 								break;
 							case "BEAT":
 								ParseBeats(eventIR, trackChunk);
+								break;
+							case "VENUE":
+								ParseVenue(eventIR, trackChunk);
 								break;
 						}
 					} catch (Exception e) {
@@ -250,7 +254,7 @@ namespace YARG.Serialization.Parser {
 
 			// Downsample instruments
 
-			foreach (var subChart in chart.allParts) {
+			foreach (var subChart in chart.AllParts) {
 				try {
 					// Downsample Five Fret instruments
 					if (subChart == chart.Guitar || subChart == chart.Bass || subChart == chart.Keys) {
@@ -278,7 +282,7 @@ namespace YARG.Serialization.Parser {
 			// Sort notes by time (just in case) and add delay
 
 			float lastNoteTime = 0f;
-			foreach (var part in chart.allParts) {
+			foreach (var part in chart.AllParts) {
 				foreach (var difficulty in part) {
 					if (difficulty == null || difficulty.Count <= 0) {
 						continue;
@@ -364,6 +368,29 @@ namespace YARG.Serialization.Parser {
 			// Look for bonus star power
 
 			// TODO
+		}
+
+		private void ParseGlobalEvents(List<EventIR> eventIR, TrackChunk trackChunk) {
+			long totalDelta = 0;
+
+			// Convert track events into intermediate representation
+			foreach (var trackEvent in trackChunk.Events) {
+				totalDelta += trackEvent.DeltaTime;
+
+				if (trackEvent is BaseTextEvent textEvent) {
+					string text = textEvent.Text;
+					// Strip away the [brackets] from events (and any garbage outside them)
+					var match = textEventRegex.Match(text);
+					if (match.Success) {
+						text = match.Groups[1].Value;
+					}
+
+					eventIR.Add(new EventIR {
+						startTick = totalDelta,
+						name = text
+					});
+				}
+			}
 		}
 
 		private void ParseStarpower(List<EventIR> eventIR, TrackChunk trackChunk, string instrument) {

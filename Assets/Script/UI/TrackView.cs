@@ -1,20 +1,24 @@
+using System;
 using System.Collections;
 using DG.Tweening;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using YARG.PlayMode;
+using YARG.Settings;
 
 namespace YARG.UI {
 	public class TrackView : MonoBehaviour {
 		[field: SerializeField]
 		public RawImage TrackImage { get; private set; }
+		[SerializeField]
+		private AspectRatioFitter _aspectRatioFitter;
 
 		[Space]
 		[SerializeField]
 		private TextMeshProUGUI _performanceText;
 		[SerializeField]
-		private PerformanceTextSizer _performanceTextSizer;
+		private PerformanceTextScaler _performanceTextScaler;
 
 		[Space]
 		[SerializeField]
@@ -30,12 +34,24 @@ namespace YARG.UI {
 
 		[Space]
 		[SerializeField]
-		private Sprite _normalSoloBox;
+		private Sprite _soloSpriteNormal;
+		[SerializeField]
+		private Sprite _soloSpritePerfect;
+		[SerializeField]
+		private Sprite _soloSpriteMessy;
+		[SerializeField]
+		private TMP_ColorGradient _soloGradientNormal;
+		[SerializeField]
+		private TMP_ColorGradient _soloGradientPerfect;
+		[SerializeField]
+		private TMP_ColorGradient _soloGradientMessy;
 
-		private bool _soloBoxShowing = false;
+		private Coroutine _soloBoxHide = null;
 
 		private void Start() {
-			_performanceTextSizer = new(24f, 3f);
+			_performanceTextScaler = new(3f);
+			_performanceText.text = "";
+			_aspectRatioFitter.aspectRatio = (float) Screen.width / Screen.height;
 		}
 
 		public void UpdateSizing(int trackCount) {
@@ -45,61 +61,100 @@ namespace YARG.UI {
 			TrackImage.transform.localScale = new Vector3(scale, scale, scale);
 		}
 
-		public void SetSoloBox(string topText, string bottomText) {
-			// Show if hidden
-			if (!_soloBoxShowing) {
-				// Stop hide coroutine, if we are already hiding
-				StopCoroutine("HideSoloBoxCoroutine");
-
-				_soloBox.gameObject.SetActive(true);
-				_soloBoxCanvasGroup.alpha = 1f;
-
-				_soloBox.sprite = _normalSoloBox;
-				_soloBoxShowing = false;
-
-				_soloFullText.text = string.Empty;
+		public void SetSoloBox(int hitPercent, int notesHit, int totalNotes) {
+			// Stop hide coroutine if we were previously hiding
+			if (_soloBoxHide != null) {
+				StopCoroutine(_soloBoxHide);
+				_soloBoxHide = null;
 			}
 
-			_soloTopText.text = topText;
-			_soloBottomText.text = bottomText;
+			string percentageText = $"{hitPercent}%";
+			string noteCountText = $"{notesHit}/{totalNotes}";
+
+			// Show solo box
+			_soloBox.gameObject.SetActive(true);
+			_soloBox.sprite = _soloSpriteNormal;
+			_soloBoxCanvasGroup.alpha = 1f;
+
+			// Set solo text
+			_soloFullText.text = string.Empty;
+			_soloTopText.text = percentageText;
+			_soloBottomText.text = noteCountText;
 		}
 
-		public void HideSoloBox(string percent, string fullText) {
-			_soloBoxShowing = false;
-
+		public void HideSoloBox(int finalPercent, double scoreBonus) {
 			_soloTopText.text = string.Empty;
 			_soloBottomText.text = string.Empty;
-			_soloFullText.text = percent;
 
-			StartCoroutine(HideSoloBoxCoroutine(fullText));
+			_soloBoxHide = StartCoroutine(HideSoloBoxCoroutine(finalPercent, scoreBonus));
 		}
 
-		private IEnumerator HideSoloBoxCoroutine(string fullText) {
+		private IEnumerator HideSoloBoxCoroutine(int finalPercent, double scoreBonus) {
+			// Set textbox color
+			var (sprite, gradient) = finalPercent switch {
+				>= 100 => (_soloSpritePerfect, _soloGradientPerfect),
+				>= 60  => (_soloSpriteNormal, _soloGradientNormal),
+				_      => (_soloSpriteMessy, _soloGradientMessy),
+			};
+			_soloBox.sprite = sprite;
+			_soloFullText.colorGradientPreset = gradient;
+
+			// Display final hit percentage
+			_soloFullText.text = $"{finalPercent}%";
+
 			yield return new WaitForSeconds(1f);
 
-			_soloFullText.text = fullText;
+			// Show performance text
+			string resultText = finalPercent switch {
+				>  100 => "HOW!?",
+				   100 => "PERFECT\nSOLO!",
+				>= 95  => "AWESOME\nSOLO!",
+				>= 90  => "GREAT\nSOLO!",
+				>= 80  => "GOOD\nSOLO!",
+				>= 70  => "SOLID\nSOLO",
+				   69  => "<i>NICE</i>\nSOLO",
+				>= 60  => "OKAY\nSOLO",
+				>=  0  => "MESSY\nSOLO",
+				<   0  => "HOW!?",
+			};
+			_soloFullText.text = resultText;
 
 			yield return new WaitForSeconds(1f);
 
+			// Show point bonus
+			_soloFullText.text = $"{Math.Round(scoreBonus)}\nPOINTS";
+
+			yield return new WaitForSeconds(1f);
+
+			// Fade out the box
 			yield return _soloBoxCanvasGroup
 				.DOFade(0f, 0.25f)
 				.WaitForCompletion();
 
 			_soloBox.gameObject.SetActive(false);
+			_soloBoxHide = null;
 		}
 
 		public void ShowPerformanceText(string text) {
-			StopCoroutine("SizePerformanceText");
-			StartCoroutine(SizePerformanceText(text));
+			if (SettingsManager.Settings.DisableTextNotifications.Data) {
+				return;
+			}
+
+			StopCoroutine(nameof(ScalePerformanceText));
+			StartCoroutine(ScalePerformanceText(text));
 		}
 
-		private IEnumerator SizePerformanceText(string text) {
-			_performanceText.text = text;
-			_performanceTextSizer.ResetAnimationTime();
+		private IEnumerator ScalePerformanceText(string text) {
+			var rect = _performanceText.rectTransform;
+			rect.localScale = Vector3.zero;
 
-			while (_performanceTextSizer.AnimTimeRemaining > 0f) {
-				_performanceTextSizer.AnimTimeRemaining -= Time.deltaTime;
-				_performanceText.fontSize = _performanceTextSizer.PerformanceTextFontSize();
+			_performanceText.text = text;
+			_performanceTextScaler.ResetAnimationTime();
+
+			while (_performanceTextScaler.AnimTimeRemaining > 0f) {
+				_performanceTextScaler.AnimTimeRemaining -= Time.deltaTime;
+				var scale = _performanceTextScaler.PerformanceTextScale();
+				rect.localScale = new Vector3(scale, scale, scale);
 
 				// Update animation every frame
 				yield return null;

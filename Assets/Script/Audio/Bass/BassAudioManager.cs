@@ -5,12 +5,13 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using ManagedBass;
+using ManagedBass.Fx;
+using ManagedBass.Mix;
 using UnityEngine;
-using YARG.Serialization;
 using YARG.Song;
-using Debug = UnityEngine.Debug;
+using DeviceType = ManagedBass.DeviceType;
 
-namespace YARG {
+namespace YARG.Audio.BASS {
 	public class BassAudioManager : MonoBehaviour, IAudioManager {
 		public bool UseStarpowerFx { get; set; }
 		public bool IsChipmunkSpeedup { get; set; }
@@ -30,21 +31,30 @@ namespace YARG {
 		public float CurrentPositionF => (float) GetPosition();
 		public float AudioLengthF { get; private set; }
 
-		private IPreviewContext _currentPreviewContext;
-		public IPreviewContext PreviewContext {
-			get {
-				_currentPreviewContext ??= new BassPreviewContext(this);
-				return _currentPreviewContext;
+		public event Action SongEnd {
+			add {
+				if (_mixer is null) {
+					throw new InvalidOperationException("No song is currently loaded!");
+				}
+
+				_mixer.SongEnd += value;
+			}
+			remove {
+				if (_mixer is null) {
+					throw new InvalidOperationException("No song is currently loaded!");
+				}
+
+				_mixer.SongEnd -= value;
 			}
 		}
 
 		private double[] _stemVolumes;
+		private ISampleChannel[] _sfxSamples;
 
 		private int _opusHandle;
 
 		private IStemMixer _mixer;
 
-		private ISampleChannel[] _sfxSamples;
 
 		private void Awake() {
 			SupportedFormats = new[] {
@@ -73,14 +83,19 @@ namespace YARG {
 
 			Bass.UpdatePeriod = 5;
 			Bass.DeviceBufferLength = 10;
-			Bass.PlaybackBufferLength = 100;
+			Bass.PlaybackBufferLength = 75;
 			Bass.DeviceNonStop = true;
 
+			// Affects Windows only. Forces device names to be in UTF-8 on Windows rather than ANSI.
+			Bass.Configure(Configuration.UnicodeDeviceInformation, true);
 			Bass.Configure(Configuration.TruePlayPosition, 0);
 			Bass.Configure(Configuration.UpdateThreads, 2);
 			Bass.Configure(Configuration.FloatDSP, true);
 
+			// Undocumented BASS_CONFIG_MP3_OLDGAPS config.
 			Bass.Configure((Configuration) 68, 1);
+
+			// Disable undocumented BASS_CONFIG_DEV_TIMEOUT config. Prevents pausing audio output if a device times out.
 			Bass.Configure((Configuration) 70, false);
 
 			int deviceCount = Bass.DeviceCount;
@@ -96,8 +111,8 @@ namespace YARG {
 
 			Debug.Log($"BASS Successfully Initialized");
 			Debug.Log($"BASS: {Bass.Version}");
-			Debug.Log($"BASS.FX: {Bass.Version}");
-			Debug.Log($"BASS.Mix: {Bass.Version}");
+			Debug.Log($"BASS.FX: {BassFx.Version}");
+			Debug.Log($"BASS.Mix: {BassMix.Version}");
 
 			Debug.Log($"Update Period: {Bass.UpdatePeriod}");
 			Debug.Log($"Device Buffer Length: {Bass.DeviceBufferLength}");
@@ -120,6 +135,36 @@ namespace YARG {
 			}
 
 			Bass.Free();
+		}
+
+		public IList<IMicDevice> GetAllInputDevices() {
+			var mics = new List<IMicDevice>();
+
+			var typeWhitelist = new List<DeviceType> {
+				DeviceType.Headset,
+				DeviceType.Digital,
+				DeviceType.Line,
+				DeviceType.Headphones,
+				DeviceType.Microphone,
+			};
+
+			for (int deviceIndex = 0; Bass.RecordGetDeviceInfo(deviceIndex, out var info); deviceIndex++) {
+				if (!info.IsEnabled) {
+					continue;
+				}
+
+				//Debug.Log($"Device {deviceIndex}: Name: {info.Name}. Type: {info.Type}. IsLoopback: {info.IsLoopback}.");
+
+				// Check if type is in whitelist
+				// The "Default" device is also excluded here since we want the user to explicitly pick which microphone to use
+				if (!typeWhitelist.Contains(info.Type) || info.Name == "Default") {
+					continue;
+				}
+
+				mics.Add(new BassMicDevice(deviceIndex, info));
+			}
+
+			return mics;
 		}
 
 		public void LoadSfx() {
@@ -162,7 +207,7 @@ namespace YARG {
 			Debug.Log("Finished loading SFX");
 		}
 
-		public void LoadSong(ICollection<string> stems, bool isSpeedUp, params SongStem[] ignoreStems) {
+		public void LoadSong(ICollection<string> stems, float speed, params SongStem[] ignoreStems) {
 			Debug.Log("Loading song");
 			UnloadSong();
 
@@ -189,7 +234,7 @@ namespace YARG {
 				}
 
 				var stemChannel = new BassStemChannel(this, stemPath, songStem);
-				if (stemChannel.Load(isSpeedUp, PlayMode.Play.speed) != 0) {
+				if (stemChannel.Load(speed) != 0) {
 					Debug.LogError($"Failed to load stem! {stemPath}");
 					Debug.LogError($"Bass Error: {Bass.LastError}");
 					continue;
@@ -215,21 +260,26 @@ namespace YARG {
 			IsAudioLoaded = true;
 		}
 
-		public void LoadMogg(ExtractedConSongEntry exConSong, bool isSpeedUp, params SongStem[] ignoreStems) {
+		public void LoadMogg(ExtractedConSongEntry exConSong, float speed, params SongStem[] ignoreStems) {
 			Debug.Log("Loading mogg song");
 			UnloadSong();
 
-			byte[] moggArray;
-			if (exConSong is ConSongEntry conSong) {
-				if (!conSong.UsingUpdateMogg)
-					moggArray = XboxCONInnerFileRetriever.RetrieveFile(conSong.Location,
-						conSong.MoggFileSize, conSong.MoggFileMemBlockOffsets)[conSong.MoggAddressAudioOffset..];
-				else moggArray = File.ReadAllBytes(conSong.MoggPath)[conSong.MoggAddressAudioOffset..];
-			} else {
-				moggArray = File.ReadAllBytes(exConSong.MoggPath)[exConSong.MoggAddressAudioOffset..];
-			}
+			// Process MOGG data
+			byte[] moggArray = exConSong.LoadMoggFile();
 
-			int moggStreamHandle = Bass.CreateStream(moggArray, 0, moggArray.Length, BassFlags.Prescan | BassFlags.Decode | BassFlags.AsyncFile);
+			if (BitConverter.ToUInt32(moggArray, 0) != 0xA)
+				throw new Exception("Original unencrypted mogg replaced by an encrpyted mogg");
+
+			moggArray = moggArray[BitConverter.ToInt32(moggArray, 4)..];
+
+			// Initialize stream
+
+			// Last flag is new BASS_SAMPLE_NOREORDER flag, which is not in the BassFlags enum,
+			// as it was made as part of an update to fix <= 8 channel oggs.
+			// https://www.un4seen.com/forum/?topic=20148.msg140872#msg140872
+			const BassFlags flags = BassFlags.Prescan | BassFlags.Decode | BassFlags.AsyncFile | (BassFlags)64;
+
+			int moggStreamHandle = Bass.CreateStream(moggArray, 0, moggArray.Length, flags);
 			if (moggStreamHandle == 0) {
 				Debug.LogError($"Failed to load mogg file or position: {Bass.LastError}");
 				return;
@@ -241,13 +291,87 @@ namespace YARG {
 				exConSong.StemMaps.Remove(stem);
 			}
 
-			_mixer = new BassStemMixer(this, moggStreamHandle, exConSong.StemMaps, exConSong.MatrixRatios);
+			// Initialize mixer
+			_mixer = new BassMoggStemMixer(this, moggStreamHandle);
 			if (!_mixer.Create()) {
 				throw new Exception($"Failed to create mixer: {Bass.LastError}");
 			}
 
-			if (!_mixer.SetupMogg(isSpeedUp)) {
-				throw new Exception($"Failed to setup MOGG channels: {Bass.LastError}");
+			// Split stream into multiple channels
+			var stemMaps = exConSong.StemMaps;
+			var matrixRatios = exConSong.MatrixRatios;
+			var splitStreams = new int[matrixRatios.GetLength(0)];
+
+			var channelMap = new int[2];
+			channelMap[1] = -1;
+
+			for (var i = 0; i < splitStreams.Length; i++) {
+				channelMap[0] = i;
+
+				int splitHandle = BassMix.CreateSplitStream(moggStreamHandle, BassFlags.Decode | BassFlags.SplitPosition, channelMap);
+				if (splitHandle == 0) {
+					throw new Exception($"Failed to create MOGG stream handle: {Bass.LastError}");
+				}
+
+				splitStreams[i] = splitHandle;
+			}
+
+			// Set up channels
+			foreach ((var stem, int[] channelIndexes) in stemMaps) {
+				int[] channelStreams = channelIndexes.Select(i => splitStreams[i]).ToArray();
+
+				var matrixes = new List<float[]>();
+				foreach (var channelIndex in channelIndexes) {
+					var matrix = new float[2];
+					matrix[0] = matrixRatios[channelIndex, 0];
+					matrix[1] = matrixRatios[channelIndex, 1];
+					matrixes.Add(matrix);
+				}
+
+				var channel = new BassMoggStemChannel(this, stem, channelStreams, matrixes);
+				if (channel.Load(speed) < 0) {
+					throw new Exception($"Failed to load MOGG stem channel: {Bass.LastError}");
+				}
+
+				int code = _mixer.AddChannel(channel);
+				if (code != 0) {
+					throw new Exception($"Failed to add MOGG stem channel to mixer: {Bass.LastError}");
+				}
+			}
+
+			Debug.Log($"Loaded {_mixer.StemsLoaded} stems");
+
+			// Setup audio length
+			AudioLengthD = _mixer.LeadChannel.LengthD;
+			AudioLengthF = (float) AudioLengthD;
+
+			IsAudioLoaded = true;
+		}
+
+		public void LoadCustomAudioFile(string audioPath, float speed) {
+			Debug.Log("Loading custom audio file");
+			UnloadSong();
+
+			_mixer = new BassStemMixer(this);
+			if (!_mixer.Create()) {
+				throw new Exception($"Failed to create mixer: {Bass.LastError}");
+			}
+
+			var stemChannel = new BassStemChannel(this, audioPath, SongStem.Song);
+			if (stemChannel.Load(speed) != 0) {
+				Debug.LogError($"Failed to load stem! {audioPath}");
+				Debug.LogError($"Bass Error: {Bass.LastError}");
+				return;
+			}
+
+			if (_mixer.GetChannel(SongStem.Song) != null) {
+				Debug.LogError($"Stem already loaded! {audioPath}");
+				return;
+			}
+
+			if (_mixer.AddChannel(stemChannel) != 0) {
+				Debug.LogError($"Failed to add stem to mixer!");
+				Debug.LogError($"Bass Error: {Bass.LastError}");
 			}
 
 			Debug.Log($"Loaded {_mixer.StemsLoaded} stems");
@@ -302,11 +426,6 @@ namespace YARG {
 			IsPlaying = _mixer.IsPlaying;
 		}
 
-		public void DisposePreviewContext() {
-			_currentPreviewContext?.Dispose();
-			_currentPreviewContext = null;
-		}
-
 		public void FadeIn(float maxVolume) {
 			Play(true);
 			if (IsPlaying) {
@@ -315,6 +434,11 @@ namespace YARG {
 		}
 
 		public async UniTask FadeOut(CancellationToken token = default) {
+			if (IsFadingOut) {
+				Debug.LogWarning("Already fading out song!");
+				return;
+			}
+
 			if (IsPlaying) {
 				IsFadingOut = true;
 				await _mixer.FadeOut(token);
@@ -349,6 +473,7 @@ namespace YARG {
 				case SongStem.Master:
 					MasterVolume = volume;
 					Bass.GlobalStreamVolume = (int) (10_000 * MasterVolume);
+					Bass.GlobalSampleVolume = (int) (10_000 * MasterVolume);
 					break;
 				case SongStem.Sfx:
 					SfxVolume = volume;

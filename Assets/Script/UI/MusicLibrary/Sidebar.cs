@@ -1,23 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
+using XboxSTFS;
 using YARG.Data;
 using YARG.Serialization;
 using YARG.Song;
 using YARG.UI.MusicLibrary.ViewTypes;
+using YARG.Util;
 
 namespace YARG.UI.MusicLibrary {
 	public class Sidebar : MonoBehaviour {
 		[SerializeField]
-		private Transform _difficultyRingsContainer;
+		private Transform _difficultyRingsTopContainer;
+		[SerializeField]
+		private Transform _difficultyRingsBottomContainer;
 		[SerializeField]
 		private TextMeshProUGUI _album;
 		[SerializeField]
@@ -37,15 +39,22 @@ namespace YARG.UI.MusicLibrary {
 		[SerializeField]
 		private GameObject difficultyRingPrefab;
 
-		private List<DifficultyRing> difficultyRings = new();
-
+		private readonly List<DifficultyRing> _difficultyRings = new();
 		private CancellationTokenSource _cancellationToken;
 
 		public void Init() {
 			// Spawn 10 difficulty rings
-			for (int i = 0; i < 10; i++) {
-				var go = Instantiate(difficultyRingPrefab, _difficultyRingsContainer);
-				difficultyRings.Add(go.GetComponent<DifficultyRing>());
+			// for (int i = 0; i < 10; i++) {
+			// 	var go = Instantiate(difficultyRingPrefab, _difficultyRingsContainer);
+			// 	difficultyRings.Add(go.GetComponent<DifficultyRing>());
+			// }
+			for (int i = 0; i < 5; ++i) {
+				var go = Instantiate(difficultyRingPrefab, _difficultyRingsTopContainer);
+				_difficultyRings.Add(go.GetComponent<DifficultyRing>());
+			}
+			for (int i = 0; i < 5; ++i) {
+				var go = Instantiate(difficultyRingPrefab, _difficultyRingsBottomContainer);
+				_difficultyRings.Add(go.GetComponent<DifficultyRing>());
 			}
 		}
 
@@ -57,11 +66,11 @@ namespace YARG.UI.MusicLibrary {
 				_cancellationToken = null;
 			}
 
-			if (SongSelection.Instance.Songs.Count <= 0) {
+			if (SongSelection.Instance.ViewList.Count <= 0) {
 				return;
 			}
 
-			var viewType = SongSelection.Instance.Songs[SongSelection.Instance.SelectedIndex];
+			var viewType = SongSelection.Instance.ViewList[SongSelection.Instance.SelectedIndex];
 
 			if (viewType is CategoryViewType categoryViewType) {
 				// Hide album art
@@ -83,7 +92,7 @@ namespace YARG.UI.MusicLibrary {
 				HelpBar.Instance.SetInfoText(string.Empty);
 
 				// Hide all difficulty rings
-				foreach (var difficultyRing in difficultyRings) {
+				foreach (var difficultyRing in _difficultyRings) {
 					difficultyRing.gameObject.SetActive(false);
 				}
 
@@ -101,7 +110,7 @@ namespace YARG.UI.MusicLibrary {
 			_charter.text = songEntry.Charter;
 			_genre.text = songEntry.Genre;
 			_year.text = songEntry.Year;
-			HelpBar.Instance.SetInfoText(songEntry.LoadingPhrase);
+			HelpBar.Instance.SetInfoText(RichTextUtils.StripRichTextTagsExclude(songEntry.LoadingPhrase, RichTextUtils.GOOD_TAGS));
 
 			// Format and show length
 			if (songEntry.SongLengthTimeSpan.Hours > 0) {
@@ -118,34 +127,34 @@ namespace YARG.UI.MusicLibrary {
 
 		private void UpdateDifficulties(SongEntry songEntry) {
 			// Show all difficulty rings
-			foreach (var difficultyRing in difficultyRings) {
+			foreach (var difficultyRing in _difficultyRings) {
 				difficultyRing.gameObject.SetActive(true);
 			}
 
 			/*
-			
-				Guitar               ; Bass               ; 4 or 5 lane ; Keys     ; Mic (dependent on mic count) 
+
+				Guitar               ; Bass               ; 4 or 5 lane ; Keys     ; Mic (dependent on mic count)
 				Pro Guitar or Co-op  ; Pro Bass or Rhythm ; True Drums  ; Pro Keys ; Band
-			
+
 			*/
 
-			difficultyRings[0].SetInfo(songEntry, Instrument.GUITAR);
-			difficultyRings[1].SetInfo(songEntry, Instrument.BASS);
+			_difficultyRings[0].SetInfo(songEntry, Instrument.GUITAR);
+			_difficultyRings[1].SetInfo(songEntry, Instrument.BASS);
 
 			// 5-lane or 4-lane
 			if (songEntry.DrumType == DrumType.FiveLane) {
-				difficultyRings[2].SetInfo(songEntry, Instrument.GH_DRUMS);
+				_difficultyRings[2].SetInfo(songEntry, Instrument.GH_DRUMS);
 			} else {
-				difficultyRings[2].SetInfo(songEntry, Instrument.DRUMS);
+				_difficultyRings[2].SetInfo(songEntry, Instrument.DRUMS);
 			}
 
-			difficultyRings[3].SetInfo(songEntry, Instrument.KEYS);
+			_difficultyRings[3].SetInfo(songEntry, Instrument.KEYS);
 
 			// Mic (with mic count)
 			if (songEntry.VocalParts == 0) {
-				difficultyRings[4].SetInfo(false, "vocals", -1);
+				_difficultyRings[4].SetInfo(false, "vocals", -1);
 			} else {
-				difficultyRings[4].SetInfo(
+				_difficultyRings[4].SetInfo(
 					true,
 					songEntry.VocalParts switch {
 						2 => "twoVocals",
@@ -159,27 +168,27 @@ namespace YARG.UI.MusicLibrary {
 			// Protar or Co-op
 			int realGuitarDiff = songEntry.PartDifficulties.GetValueOrDefault(Instrument.REAL_GUITAR, -1);
 			if (songEntry.DrumType == DrumType.FourLane && realGuitarDiff == -1) {
-				difficultyRings[5].SetInfo(songEntry, Instrument.GUITAR_COOP);
+				_difficultyRings[5].SetInfo(songEntry, Instrument.GUITAR_COOP);
 			} else {
-				difficultyRings[5].SetInfo(songEntry, Instrument.REAL_GUITAR);
+				_difficultyRings[5].SetInfo(songEntry, Instrument.REAL_GUITAR);
 			}
 
 			// Pro bass or Rhythm
 			int realBassDiff = songEntry.PartDifficulties.GetValueOrDefault(Instrument.REAL_BASS, -1);
 			if (songEntry.DrumType == DrumType.FiveLane && realBassDiff == -1) {
-				difficultyRings[6].SetInfo(songEntry, Instrument.RHYTHM);
+				_difficultyRings[6].SetInfo(songEntry, Instrument.RHYTHM);
 			} else {
-				difficultyRings[6].SetInfo(songEntry, Instrument.REAL_BASS);
+				_difficultyRings[6].SetInfo(songEntry, Instrument.REAL_BASS);
 			}
 
-			difficultyRings[7].SetInfo(false, "trueDrums", -1);
-			difficultyRings[8].SetInfo(songEntry, Instrument.REAL_KEYS);
+			_difficultyRings[7].SetInfo(false, "trueDrums", -1);
+			_difficultyRings[8].SetInfo(songEntry, Instrument.REAL_KEYS);
 
 			// Band difficulty
 			if (songEntry.BandDifficulty == -1) {
-				difficultyRings[9].SetInfo(false, "band", -1);
+				_difficultyRings[9].SetInfo(false, "band", -1);
 			} else {
-				difficultyRings[9].SetInfo(true, "band", songEntry.BandDifficulty);
+				_difficultyRings[9].SetInfo(true, "band", songEntry.BandDifficulty);
 			}
 		}
 
@@ -196,14 +205,14 @@ namespace YARG.UI.MusicLibrary {
 
 			_cancellationToken = new();
 
-			var viewType = SongSelection.Instance.Songs[SongSelection.Instance.SelectedIndex];
+			var viewType = SongSelection.Instance.ViewList[SongSelection.Instance.SelectedIndex];
 			if (viewType is not SongViewType songViewType) {
 				return;
 			}
 
 			var songEntry = songViewType.SongEntry;
 
-			if (songEntry.SongType == SongType.SongIni) {
+			if (songEntry is IniSongEntry) {
 				string[] possiblePaths = {
 					"album.png",
 					"album.jpg",
@@ -218,71 +227,29 @@ namespace YARG.UI.MusicLibrary {
 						break;
 					}
 				}
-			} else if (songEntry.SongType == SongType.RbCon) {
-				await LoadRbConCover((ConSongEntry) songEntry);
-			} else if (songEntry.SongType == SongType.ExtractedRbCon) {
-				await LoadExtractedRbConCover((ExtractedConSongEntry) songEntry);
+			} else {
+				await LoadRbConCover(songEntry as ExtractedConSongEntry);
 			}
 		}
 
 		private async UniTask LoadSongIniCover(string filePath) {
-			// Load file
-#if UNITY_EDITOR_LINUX || UNITY_STANDALONE_LINUX || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-			using UnityWebRequest uwr = UnityWebRequestTexture.GetTexture(new System.Uri(filePath));
-#else
-			using UnityWebRequest uwr = UnityWebRequestTexture.GetTexture(filePath);
-#endif
+			var texture = await TextureLoader.Load(filePath, _cancellationToken.Token);
 
-			try {
-				await uwr.SendWebRequest().WithCancellation(_cancellationToken.Token);
-				var texture = DownloadHandlerTexture.GetContent(uwr);
-
+			if (texture != null) {
 				// Set album cover
 				_albumCover.texture = texture;
 				_albumCover.color = Color.white;
 				_albumCover.uvRect = new Rect(0f, 0f, 1f, 1f);
-			} catch (OperationCanceledException) { }
-		}
-
-		private async UniTask LoadRbConCover(ConSongEntry conSongEntry) {
-			if (string.IsNullOrEmpty(conSongEntry.ImagePath)) {
-				return;
-			}
-
-			Texture2D texture = null;
-
-			try {
-				byte[] bytes;
-				if (conSongEntry.AlternatePath) {
-					bytes = File.ReadAllBytes(conSongEntry.ImagePath);
-				} else {
-					bytes = await XboxCONInnerFileRetriever.RetrieveFile(conSongEntry.Location,
-						  conSongEntry.ImageFileSize, conSongEntry.ImageFileMemBlockOffsets, _cancellationToken.Token);
-				}
-
-				texture = await XboxImageTextureGenerator.GetTexture(bytes, _cancellationToken.Token);
-
-				_albumCover.texture = texture;
-				_albumCover.color = Color.white;
-				_albumCover.uvRect = new Rect(0f, 0f, 1f, -1f);
-			} catch (OperationCanceledException) {
-				// Dispose of the texture (prevent memory leaks)
-				if (texture != null) {
-					// This might seem weird, but we are destroying the *texture*, not the UI image.
-					Destroy(texture);
-				}
 			}
 		}
 
-		private async UniTask LoadExtractedRbConCover(ExtractedConSongEntry conSongEntry) {
-			if (string.IsNullOrEmpty(conSongEntry.ImagePath)) {
-				return;
-			}
-
+		private async UniTask LoadRbConCover(ExtractedConSongEntry conSongEntry) {
 			Texture2D texture = null;
-
 			try {
-				var bytes = await File.ReadAllBytesAsync(conSongEntry.ImagePath, _cancellationToken.Token);
+				byte[] bytes = conSongEntry.LoadImgFile();
+				if (bytes.Length == 0)
+					return;
+
 				texture = await XboxImageTextureGenerator.GetTexture(bytes, _cancellationToken.Token);
 
 				_albumCover.texture = texture;
@@ -298,12 +265,12 @@ namespace YARG.UI.MusicLibrary {
 		}
 
 		public void PrimaryButtonClick() {
-			var viewType = SongSelection.Instance.Songs[SongSelection.Instance.SelectedIndex];
+			var viewType = SongSelection.Instance.ViewList[SongSelection.Instance.SelectedIndex];
 			viewType.PrimaryButtonClick();
 		}
 
 		public void SearchFilter(string type) {
-			var viewType = SongSelection.Instance.Songs[SongSelection.Instance.SelectedIndex];
+			var viewType = SongSelection.Instance.ViewList[SongSelection.Instance.SelectedIndex];
 			if (viewType is not SongViewType songViewType) {
 				return;
 			}
@@ -318,7 +285,7 @@ namespace YARG.UI.MusicLibrary {
 				"genre" => songEntry.Genre,
 				_ => throw new Exception("Unreachable")
 			};
-			SongSelection.Instance.searchField.text = $"{type}:{value}";
+			SongSelection.Instance.SetSearchInput($"{type}:{value}");
 		}
 	}
 }
