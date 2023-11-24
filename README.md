@@ -1,34 +1,42 @@
-> **Warning**
->
+> [!WARNING]
 > YARG is **not done yet**! Expect incomplete features and bugs!
 
 <br/>
 
 <div align="center">
-  <img src="Images/YARG_Full.png" width="60%" alt="YARG">
-
+  <img src="Images/Logo_Dark.png#gh-light-mode-only" width="60%" alt="YARG">
+  <img src="Images/Logo_White.png#gh-dark-mode-only" width="60%" alt="YARG">
+  
   <br/>
   <br/>
-
-  <a href="https://twitter.com/EliteAsian123">
-    <img src="https://raw.githubusercontent.com/gauravghongde/social-icons/master/PNG/Color/Twitter.png" width="48px" height="48px" alt="Twitter">
+  
+  <a href="https://twitter.com/YARGGame">
+    <img src="Images/Socials/Twitter.png" width="48px" height="48px" alt="Twitter">
   </a>
   <a href="https://discord.gg/sqpu4R552r">
-    <img src="https://discord.com/assets/847541504914fd33810e70a0ea73177e.ico" height="48px" width="48px" alt="Discord">
+    <img src="Images/Socials/Discord.png" height="48px" width="48px" alt="Discord">
   </a>
+  <a href="https://reddit.com/r/yarg">
+    <img src="Images/Socials/Reddit.png" height="48px" width="48px" alt="Discord">
+  </a>
+  
+  <br/>
+  <br/>
+  
+  <img src="Images/Image.png" width="90%" alt="README gif">
 
   <br/>
   <br/>
-
-  <img src="Images/README_Top.png" width="80%" alt="README top">
-  <img src="Images/README_Gif.gif" width="80%" alt="README gif">
 </div>
 
 # 👉 Disclaimer
 
-We **DO NOT** encourage, advocate, or promote **PIRATING** of songs, or of anything else. This game's intended use is for you, the player, to play songs that you already own. This means, ripping songs of a game **YOU OWN** for **YOURSELF** for **PERSONAL USE**, or downloading creative commons/public domain songs off of the internet.
-
-**YARG** has nothing to do with pirates. It stands for "Yet Another Rhythm Game."
+> [!IMPORTANT]
+> **YARG stands firmly against all forms of piracy.** We neither support nor endorse piracy, as it is a violation of copyright law with serious legal consequences. Our platform's importable content—designed for creators to share their work and for educational purposes—does not justify or excuse piracy.
+>
+> YARG itself **does not** use any ripped/pirated assets or music and never will. By using YARG, users agree not to promote or endorse piracy in any way through our platform. Upholding these principles ensures a community that respects copyright, creativity, and legal standards.
+>
+> YARG stands for "Yet Another Rhythm Game" and NOT for pirates.
 
 # 📃 Table of Contents
 
@@ -51,13 +59,26 @@ We **DO NOT** encourage, advocate, or promote **PIRATING** of songs, or of anyth
 
 # 📥 Downloading and Playing
 
-**An official installation video is [available here](https://www.youtube.com/watch?v=bSPSttKNnKc).**
+**It is recommended you download YARG via the [YARC Launcher](https://github.com/YARC-Official/YARC-Launcher/releases/).** Downloading the portable option is not recommended as some features may not work.
 
-A community made one is [available as well](https://youtu.be/hEJHuAGGlD8).
+## YARC Launcher
+
+> [!IMPORTANT]  
+> If you are on Linux, there are some additional things you need to do in order for controllers to work. See the Linux section for more info.
+
+1. Go to the YARC Launcher releases page, [here](https://github.com/YARC-Official/YARC-Launcher/releases/).
+2. Click on the download option for your operating system.
+3. You may get a "this application is not safe" warning depending on your operating system. This is a false positive. [Click here](https://github.com/YARC-Official/YARC-Launcher#-antivirus-warnings) to learn more.
+4. Once in the launcher, click on "YARG" on the left hand side.
+5. Then, click on green "Update Stable" button.
+6. You will be prompted to choose an install folder. If you don't know what folder to choose, just click "Okay". Please ensure that the folder you select is empty.
+7. Wait for it to finish installing...
+8. Finally, press "Play Stable"!
+9. Additionally, if you want some songs, install "YARG Setlist" which is also on the left in the YARC Launcher.
 
 ## Windows
 
-1. Go to [the latest release](https://github.com/EliteAsian123/YARG/releases/latest) and click on the "Assets" dropdown, then click on `YARG_vX.X.X-Windows-x64.zip` to download.
+1. Go to [the latest release](https://github.com/YARC-Official/YARG/releases/latest) and click on the "Assets" dropdown, then click on `YARG_vX.X.X-Windows-x64.zip` to download.
 2. Extract the contents of the zip file by right clicking it and pressing "Extract All..."
 3. Choose where you want to extract it to, then click "Extract".
 4. Open the extracted folder and double-click `YARG.exe` (if you don't have file extensions on, it is called just `YARG`)
@@ -65,13 +86,13 @@ A community made one is [available as well](https://youtu.be/hEJHuAGGlD8).
 
 ## Mac
 
-1. Go to the [the latest release](https://github.com/EliteAsian123/YARG/releases/latest) and click on the "Assets" dropdown, then click on `YARG_vX.X.X-MacOS-Universal.dmg` to download.
+1. Go to the [the latest release](https://github.com/YARC-Official/YARG/releases/latest) and click on the "Assets" dropdown, then click on `YARG_vX.X.X-MacOS-Universal.dmg` to download.
 2. Open the downloaded .dmg and drag the YARG app to your Apps folder.
 3. Double-click the YARG app to run it.
 
 ## Linux
 
-1. Go to [the latest release](https://github.com/EliteAsian123/YARG/releases/latest) and click on the "Assets" dropdown, then click on `YARG_vX.X.X-Linux-x86_64.zip` to download.
+1. Go to [the latest release](https://github.com/YARC-Official/YARG/releases/latest) and click on the "Assets" dropdown, then click on `YARG_vX.X.X-Linux-x86_64.zip` to download.
 2. Extract the zip to the location of your choosing.
 3. Inside the folder you extracted the game to, open a terminal and run `chmod +x ./YARG.x86_64` to give the game executable permission.
 4. You can now double-click the `YARG.x86_64` file or use `./YARG.x86_64` in a terminal to run the game, however there are some dependencies that will be needed for HID devices (such as PS3 and Wii instruments).
